@@ -1,0 +1,9 @@
+{
+  "name": "temple-relay-backend",
+  "version": "1.0.0",
+  "description": "Lambda backend for Temple Relay app",
+  "main": "index.js",
+  "dependencies": {
+    "googleapis": "^144.0.0"
+  }
+}

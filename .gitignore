@@ -1,0 +1,16 @@
+# ── Never commit these ────────────────────────────────────────────────────────
+.env
+.env.local
+*.json.key
+service-account*.json
+*credentials*.json
+
+# ── Build artifacts ───────────────────────────────────────────────────────────
+frontend/build/
+frontend/node_modules/
+backend/node_modules/
+.build/
+
+# ── OS files ──────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
