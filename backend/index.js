@@ -4,6 +4,8 @@
  * Routes:
  *   POST /submit  — Append a new ordinance row to the Google Sheet
  *   GET  /stats   — Return aggregated stats (totals, random male/female, sheet URL)
+ *   GET  /people  — Return each person's ordinance progression, grouped by
+ *                   FamilySearch ID (preferred) or normalized name
  *
  * Environment variables (set in Lambda console or via deployment script):
  *   GOOGLE_SERVICE_ACCOUNT_JSON  — The full JSON content of your service account key
@@ -74,6 +76,18 @@ function rowToEntry(row) {
     familySearchId: row[COL.FAMILY_SEARCH_ID] || null,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Ordered ordinance stages — the canonical progression sequence.
+// A person is "ready for" the first stage in this list they haven't completed.
+// ---------------------------------------------------------------------------
+const STAGES = [
+  'Baptism & Confirmation',
+  'Initiatory',
+  'Endowment',
+  'Sealing to Parents',
+  'Sealing to Spouse',
+];
 
 // ---------------------------------------------------------------------------
 // POST /submit
@@ -170,6 +184,143 @@ async function handleStats() {
 }
 
 // ---------------------------------------------------------------------------
+// GET /people
+// Returns each unique person with their completed stages and the next stage
+// they are ready for.
+//
+// Grouping strategy:
+//   1. If a row has a non-empty FamilySearch ID, use that as the primary key.
+//   2. Otherwise fall back to the lowercased, trimmed name.
+//
+// This means two rows with the same FS ID will always merge, even if the
+// names were typed slightly differently.
+//
+// Response shape:
+// {
+//   people: [
+//     {
+//       name: "John Smith",
+//       gender: "Male",
+//       familySearchId: "LZXX-XXX" | null,
+//       completedStages: ["Baptism & Confirmation", "Initiatory"],
+//       readyFor: "Endowment"   // null if all 5 stages complete
+//     },
+//     ...
+//   ]
+// }
+// ---------------------------------------------------------------------------
+async function handlePeople() {
+  const sheets = getSheetsClient();
+  const spreadsheetId = process.env.SPREADSHEET_ID;
+  const sheetName = process.env.SHEET_NAME || 'Ordinances';
+
+  const result = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${sheetName}!A2:F`,
+  });
+
+  const rows = result.data.values || [];
+
+  // Map keyed by a canonical ID string → person record
+  // We keep two lookup maps so we can handle the case where later rows
+  // for the same person add a FamilySearch ID that earlier rows lacked.
+  const byFsId = {};   // fsId  → person record
+  const byName = {};   // normalizedName → person record
+
+  for (const row of rows) {
+    if (row.length < 4) continue; // skip malformed rows
+
+    const entry = rowToEntry(row);
+    if (!entry.name && !entry.familySearchId) continue;
+
+    const fsId = entry.familySearchId ? entry.familySearchId.trim() : null;
+    const normalizedName = entry.name.trim().toLowerCase();
+
+    // --- find or create the person record ---
+    let person = null;
+
+    if (fsId) {
+      // Primary: look up by FS ID
+      person = byFsId[fsId];
+      if (!person) {
+        // Maybe we already created a name-keyed record for this person
+        // before we had their FS ID. Promote it.
+        person = byName[normalizedName];
+        if (person) {
+          // Attach the FS ID and move to the fsId map
+          person.familySearchId = fsId;
+          byFsId[fsId] = person;
+          // Keep the byName entry pointing to the same object so future
+          // name-only rows for this person still merge correctly.
+        } else {
+          // Brand new person
+          person = {
+            name: entry.name.trim(),
+            gender: entry.gender || '',
+            familySearchId: fsId,
+            completedStages: [],
+          };
+          byFsId[fsId] = person;
+          byName[normalizedName] = person;
+        }
+      }
+    } else {
+      // No FS ID — fall back to name matching
+      person = byName[normalizedName];
+      if (!person) {
+        person = {
+          name: entry.name.trim(),
+          gender: entry.gender || '',
+          familySearchId: null,
+          completedStages: [],
+        };
+        byName[normalizedName] = person;
+      }
+    }
+
+    // --- merge this ordinance into the person record ---
+    if (entry.ordinance && STAGES.includes(entry.ordinance)) {
+      if (!person.completedStages.includes(entry.ordinance)) {
+        person.completedStages.push(entry.ordinance);
+      }
+    }
+
+    // Keep the most recent non-empty name/gender (in case it was fixed later)
+    if (entry.name.trim()) person.name = entry.name.trim();
+    if (entry.gender) person.gender = entry.gender;
+  }
+
+  // Collect unique person records (byFsId and byName may share references;
+  // use a Set to deduplicate).
+  const seen = new Set();
+  const people = [];
+  for (const p of [...Object.values(byFsId), ...Object.values(byName)]) {
+    if (!seen.has(p)) {
+      seen.add(p);
+
+      // Sort completed stages in canonical order
+      p.completedStages.sort((a, b) => STAGES.indexOf(a) - STAGES.indexOf(b));
+
+      // Determine the next stage the person is ready for
+      const readyFor = STAGES.find((s) => !p.completedStages.includes(s)) || null;
+      p.readyFor = readyFor;
+
+      people.push(p);
+    }
+  }
+
+  // Sort people: incomplete first (by how far along they are), then complete
+  people.sort((a, b) => {
+    const aIdx = a.readyFor ? STAGES.indexOf(a.readyFor) : STAGES.length;
+    const bIdx = b.readyFor ? STAGES.indexOf(b.readyFor) : STAGES.length;
+    if (aIdx !== bIdx) return aIdx - bIdx;
+    return a.name.localeCompare(b.name);
+  });
+
+  return response(200, { people });
+}
+
+// ---------------------------------------------------------------------------
 // Response helper
 // ---------------------------------------------------------------------------
 function response(statusCode, body) {
@@ -201,6 +352,10 @@ exports.handler = async (event) => {
 
     if (method === 'GET' && path.endsWith('/stats')) {
       return await handleStats();
+    }
+
+    if (method === 'GET' && path.endsWith('/people')) {
+      return await handlePeople();
     }
 
     return response(404, { error: 'Not found.' });

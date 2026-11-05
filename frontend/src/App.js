@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import SubmitForm from './SubmitForm';
 import StatsPanel from './StatsPanel';
+import PeoplePanel from './PeoplePanel';
 
 // ---------------------------------------------------------------------------
 // API_BASE is set at build time via an environment variable.
@@ -15,6 +16,10 @@ function App() {
   const [stats, setStats] = useState(null);
   const [statsLoading, setStatsLoading] = useState(true);
   const [statsError, setStatsError] = useState(null);
+
+  const [people, setPeople] = useState(null);
+  const [peopleLoading, setPeopleLoading] = useState(true);
+  const [peopleError, setPeopleError] = useState(null);
 
   const fetchStats = useCallback(async () => {
     setStatsLoading(true);
@@ -32,9 +37,33 @@ function App() {
     }
   }, []);
 
+  const fetchPeople = useCallback(async () => {
+    setPeopleLoading(true);
+    setPeopleError(null);
+    try {
+      const res = await fetch(`${API_BASE}/people`);
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const data = await res.json();
+      setPeople(data.people || []);
+    } catch (err) {
+      setPeopleError('Could not load ordinance progress. Please try again later.');
+      console.error('People fetch error:', err);
+    } finally {
+      setPeopleLoading(false);
+    }
+  }, []);
+
+  // Fetch both on mount
   useEffect(() => {
     fetchStats();
-  }, [fetchStats]);
+    fetchPeople();
+  }, [fetchStats, fetchPeople]);
+
+  // After a new submission, refresh both stats and the people list
+  function handleSubmitSuccess() {
+    fetchStats();
+    fetchPeople();
+  }
 
   return (
     <div className="app">
@@ -52,10 +81,17 @@ function App() {
           onRefresh={fetchStats}
         />
 
+        {/* Ordinance progression panel */}
+        <PeoplePanel
+          people={people}
+          loading={peopleLoading}
+          error={peopleError}
+        />
+
         {/* Submission form */}
         <SubmitForm
           apiBase={API_BASE}
-          onSuccess={fetchStats}
+          onSuccess={handleSubmitSuccess}
         />
       </main>
 

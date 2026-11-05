@@ -273,3 +273,279 @@ body {
   color: #aaa;
   margin-top: 2rem;
 }
+
+/* ══════════════════════════════════════════════════════════
+   PEOPLE PANEL — ordinance progression
+   ══════════════════════════════════════════════════════════ */
+
+/* Filter bar ------------------------------------------------ */
+.people-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.people-filter-label {
+  font-size: 0.9rem;
+  font-weight: bold;
+  color: #1a3a5c;
+  white-space: nowrap;
+}
+
+.people-filter-select {
+  padding: 0.45rem 0.75rem;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  background: #fafafa;
+  color: #2c2c2c;
+  cursor: pointer;
+  transition: border-color 0.2s;
+  min-width: 220px;
+}
+
+.people-filter-select:focus {
+  outline: none;
+  border-color: #2e5987;
+}
+
+/* Pipeline legend ------------------------------------------- */
+.pipeline-legend {
+  display: flex;
+  gap: 1.25rem;
+  align-items: center;
+  font-size: 0.78rem;
+  color: #666;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #ccc;
+  background: #f0ece4;
+  flex-shrink: 0;
+}
+
+.legend-dot.done {
+  background: #c9a84c;
+  border-color: #a8882e;
+}
+
+.legend-dot.next {
+  background: #fff;
+  border: 2px solid #2e5987;
+}
+
+/* Person list ----------------------------------------------- */
+.people-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+/* Person row card */
+.person-row {
+  background: #f5f0e8;
+  border: 1px solid #e0d8c8;
+  border-radius: 7px;
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  transition: box-shadow 0.15s;
+}
+
+.person-row:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.person-row--complete {
+  background: #f0faf4;
+  border-color: #a8d5b5;
+}
+
+/* Person row — info section */
+.person-row-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.person-row-name {
+  font-size: 1rem;
+  font-weight: bold;
+  color: #1a3a5c;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.person-row-gender {
+  font-size: 0.75rem;
+  font-weight: normal;
+  color: #888;
+  font-style: italic;
+}
+
+.person-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+/* Badges */
+.badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-weight: bold;
+  letter-spacing: 0.02em;
+}
+
+.badge--ready {
+  background: #dce8f5;
+  color: #1a3a5c;
+  border: 1px solid #9bbad8;
+}
+
+.badge--complete {
+  background: #d4edda;
+  color: #1e6b3c;
+  border: 1px solid #a3d4b3;
+}
+
+/* FamilySearch link inside person row */
+.person-row-fslink {
+  font-size: 0.78rem;
+  color: #2e5987;
+  text-decoration: none;
+  border-bottom: 1px dotted #2e5987;
+}
+
+.person-row-fslink:hover {
+  color: #1a3a5c;
+  border-bottom-style: solid;
+}
+
+/* ── Pipeline ─────────────────────────────────────────────── */
+.pipeline {
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+}
+
+/* Connector line between bubbles */
+.pipeline-connector {
+  flex: 1;
+  height: 3px;
+  background: #d8d0c0;
+  margin-top: 18px; /* vertically center with the bubble circles */
+  min-width: 8px;
+  transition: background 0.2s;
+}
+
+.pipeline-connector.done {
+  background: #c9a84c;
+}
+
+/* Bubble */
+.pipeline-bubble {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  width: 68px;
+  text-align: center;
+  cursor: default;
+}
+
+.pipeline-bubble-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 2px solid #ccc;
+  background: #f0ece4;
+  font-size: 1rem;
+  color: #aaa;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+/* Completed stage — gold fill */
+.pipeline-bubble.done .pipeline-bubble-icon {
+  background: #c9a84c;
+  border-color: #a8882e;
+  color: #fff;
+  font-size: 0.95rem;
+}
+
+/* Next/ready stage — blue outline, arrow */
+.pipeline-bubble.next .pipeline-bubble-icon {
+  background: #fff;
+  border-color: #2e5987;
+  border-width: 2px;
+  color: #2e5987;
+  font-size: 1rem;
+  font-weight: bold;
+}
+
+.pipeline-bubble-label {
+  font-size: 0.65rem;
+  line-height: 1.2;
+  color: #666;
+  max-width: 68px;
+  text-align: center;
+}
+
+.pipeline-bubble.done .pipeline-bubble-label {
+  color: #8a6e20;
+  font-weight: bold;
+}
+
+.pipeline-bubble.next .pipeline-bubble-label {
+  color: #1a3a5c;
+  font-weight: bold;
+}
+
+/* Responsive: on narrow screens, show the pipeline scrollable */
+@media (max-width: 560px) {
+  .pipeline-bubble {
+    width: 56px;
+  }
+
+  .pipeline-bubble-icon {
+    width: 32px;
+    height: 32px;
+    font-size: 0.85rem;
+  }
+
+  .pipeline-connector {
+    margin-top: 15px;
+  }
+
+  .people-filter-select {
+    min-width: 100%;
+  }
+}

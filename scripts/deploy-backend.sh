@@ -83,7 +83,25 @@ else
 fi
 
 # ── Step 5: Create or update Lambda function ──────────────────────────────────
-ENV_VARS="SPREADSHEET_ID=${SPREADSHEET_ID},SHEET_NAME=${SHEET_NAME},SPREADSHEET_URL=${SPREADSHEET_URL},GOOGLE_SERVICE_ACCOUNT_JSON=${GOOGLE_SERVICE_ACCOUNT_JSON}"
+# Write environment variables to a temp JSON file so that the
+# GOOGLE_SERVICE_ACCOUNT_JSON value (which contains spaces, braces, and quotes)
+# is passed safely without confusing the AWS CLI argument parser.
+ENV_JSON_FILE=$(mktemp /tmp/lambda-env-XXXXXX.json)
+# Ensure the temp file is removed when the script exits (success or failure)
+trap 'rm -f "$ENV_JSON_FILE"' EXIT
+
+python3 -c "
+import json, os, sys
+env = {
+    'SPREADSHEET_ID':            os.environ['SPREADSHEET_ID'],
+    'SHEET_NAME':                os.environ.get('SHEET_NAME', 'Ordinances'),
+    'SPREADSHEET_URL':           os.environ.get('SPREADSHEET_URL', ''),
+    'GOOGLE_SERVICE_ACCOUNT_JSON': os.environ['GOOGLE_SERVICE_ACCOUNT_JSON'],
+}
+print(json.dumps({'Variables': env}))
+" > "$ENV_JSON_FILE"
+
+echo "   Environment JSON written to $ENV_JSON_FILE"
 
 if aws lambda get-function --function-name "$LAMBDA_FUNCTION_NAME" --region "$AWS_REGION" > /dev/null 2>&1; then
   echo "→ Updating existing Lambda function..."
@@ -100,7 +118,7 @@ if aws lambda get-function --function-name "$LAMBDA_FUNCTION_NAME" --region "$AW
   echo "   Updating environment variables..."
   aws lambda update-function-configuration \
     --function-name "$LAMBDA_FUNCTION_NAME" \
-    --environment "Variables={SPREADSHEET_ID=${SPREADSHEET_ID},SHEET_NAME=${SHEET_NAME},SPREADSHEET_URL=${SPREADSHEET_URL},GOOGLE_SERVICE_ACCOUNT_JSON=${GOOGLE_SERVICE_ACCOUNT_JSON}}" \
+    --environment "file://$ENV_JSON_FILE" \
     --region "$AWS_REGION" > /dev/null
 else
   echo "→ Creating new Lambda function..."
@@ -112,7 +130,7 @@ else
     --zip-file "fileb://$ZIP_PATH" \
     --timeout 15 \
     --memory-size 256 \
-    --environment "Variables={SPREADSHEET_ID=${SPREADSHEET_ID},SHEET_NAME=${SHEET_NAME},SPREADSHEET_URL=${SPREADSHEET_URL},GOOGLE_SERVICE_ACCOUNT_JSON=${GOOGLE_SERVICE_ACCOUNT_JSON}}" \
+    --environment "file://$ENV_JSON_FILE" \
     --region "$AWS_REGION" > /dev/null
 
   echo "   Waiting for Lambda to be ready..."
@@ -229,6 +247,11 @@ echo "   Configuring /stats endpoint..."
 STATS_RESOURCE_ID=$(create_or_get_resource "stats")
 add_method_integration "$STATS_RESOURCE_ID" "GET"
 add_options_method "$STATS_RESOURCE_ID"
+
+echo "   Configuring /people endpoint..."
+PEOPLE_RESOURCE_ID=$(create_or_get_resource "people")
+add_method_integration "$PEOPLE_RESOURCE_ID" "GET"
+add_options_method "$PEOPLE_RESOURCE_ID"
 
 # ── Step 7: Grant API Gateway permission to invoke Lambda ─────────────────────
 echo "→ Granting API Gateway permission to invoke Lambda..."

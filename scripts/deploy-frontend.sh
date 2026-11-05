@@ -84,86 +84,25 @@ echo "   Upload complete."
 # ── Step 6: Set up CloudFront distribution ────────────────────────────────────
 echo "→ Checking CloudFront distribution..."
 
-EXISTING_DIST_ID=$(aws cloudfront list-distributions \
-  --query "DistributionList.Items[?Origins.Items[0].DomainName=='${S3_BUCKET_NAME}.s3-website-${AWS_REGION}.amazonaws.com'].Id | [0]" \
-  --output text 2>/dev/null || echo "None")
+# Distribution ID is pinned to the original deployment.
+# If you ever need to create a new distribution from scratch, remove this
+# variable and the script will fall back to auto-detection + creation.
+PINNED_DIST_ID="E2XVE3NOK7TI4M"
 
-if [ "$EXISTING_DIST_ID" = "None" ] || [ -z "$EXISTING_DIST_ID" ]; then
-  echo "   Creating CloudFront distribution (this takes 5–10 minutes)..."
+EXISTING_DIST_ID="$PINNED_DIST_ID"
+echo "   Using distribution: $EXISTING_DIST_ID"
 
-  DIST_CONFIG=$(cat <<EOF
-{
-  "CallerReference": "temple-relay-$(date +%s)",
-  "Comment": "Temple Relay frontend",
-  "DefaultCacheBehavior": {
-    "TargetOriginId": "S3-temple-relay",
-    "ViewerProtocolPolicy": "redirect-to-https",
-    "AllowedMethods": {
-      "Quantity": 2,
-      "Items": ["GET", "HEAD"]
-    },
-    "ForwardedValues": {
-      "QueryString": false,
-      "Cookies": { "Forward": "none" }
-    },
-    "MinTTL": 0,
-    "DefaultTTL": 86400,
-    "MaxTTL": 31536000
-  },
-  "Origins": {
-    "Quantity": 1,
-    "Items": [{
-      "Id": "S3-temple-relay",
-      "DomainName": "${S3_BUCKET_NAME}.s3-website-${AWS_REGION}.amazonaws.com",
-      "CustomOriginConfig": {
-        "HTTPPort": 80,
-        "HTTPSPort": 443,
-        "OriginProtocolPolicy": "http-only"
-      }
-    }]
-  },
-  "CustomErrorResponses": {
-    "Quantity": 1,
-    "Items": [{
-      "ErrorCode": 404,
-      "ResponsePagePath": "/index.html",
-      "ResponseCode": "200",
-      "ErrorCachingMinTTL": 0
-    }]
-  },
-  "Enabled": true,
-  "DefaultRootObject": "index.html",
-  "PriceClass": "PriceClass_100",
-  "HttpVersion": "http2"
-}
-EOF
-)
+DIST_DOMAIN=$(aws cloudfront get-distribution \
+  --id "$EXISTING_DIST_ID" \
+  --query 'Distribution.DomainName' \
+  --output text)
+echo "   Domain: $DIST_DOMAIN"
 
-  DIST_RESULT=$(aws cloudfront create-distribution \
-    --distribution-config "$DIST_CONFIG" \
-    --query 'Distribution.[Id,DomainName]' \
-    --output text)
-
-  DIST_ID=$(echo "$DIST_RESULT" | awk '{print $1}')
-  DIST_DOMAIN=$(echo "$DIST_RESULT" | awk '{print $2}')
-
-  echo "   Distribution ID: $DIST_ID"
-  echo "   Domain: $DIST_DOMAIN"
-  echo "   Note: CloudFront may take 5–10 minutes to fully deploy."
-else
-  echo "   Found existing distribution: $EXISTING_DIST_ID"
-  DIST_DOMAIN=$(aws cloudfront get-distribution \
-    --id "$EXISTING_DIST_ID" \
-    --query 'Distribution.DomainName' \
-    --output text)
-  echo "   Domain: $DIST_DOMAIN"
-
-  echo "→ Invalidating CloudFront cache..."
-  aws cloudfront create-invalidation \
-    --distribution-id "$EXISTING_DIST_ID" \
-    --paths "/*" > /dev/null
-  echo "   Cache invalidation submitted."
-fi
+echo "→ Invalidating CloudFront cache..."
+aws cloudfront create-invalidation \
+  --distribution-id "$EXISTING_DIST_ID" \
+  --paths "/*" > /dev/null
+echo "   Cache invalidation submitted."
 
 echo ""
 echo "✅ Frontend deployment complete!"
