@@ -301,8 +301,28 @@ async function handlePeople() {
       // Sort completed stages in canonical order
       p.completedStages.sort((a, b) => STAGES.indexOf(a) - STAGES.indexOf(b));
 
-      // Determine the next stage the person is ready for
-      const readyFor = STAGES.find((s) => !p.completedStages.includes(s)) || null;
+      // Determine the next stage the person is ready for.
+      //
+      // We never infer earlier stages from later ones — if someone only has
+      // "Endowment" recorded, we do NOT assume they completed Baptism or
+      // Initiatory. Instead, readyFor is the first stage that comes AFTER
+      // their highest recorded stage that they haven't completed yet.
+      //
+      // If they have no recorded stages, readyFor is "Baptism & Confirmation".
+      // If they have completed all 5 stages, readyFor is null.
+      let readyFor = null;
+      if (p.completedStages.length === 0) {
+        readyFor = STAGES[0];
+      } else {
+        // Index of the furthest stage they've completed
+        const highestIdx = Math.max(
+          ...p.completedStages.map((s) => STAGES.indexOf(s))
+        );
+        // First stage after that index which they haven't completed
+        readyFor = STAGES.slice(highestIdx + 1).find(
+          (s) => !p.completedStages.includes(s)
+        ) || null;
+      }
       p.readyFor = readyFor;
 
       people.push(p);
