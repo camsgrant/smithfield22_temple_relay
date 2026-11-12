@@ -125,17 +125,26 @@ function PersonRow({ person }) {
 // ---------------------------------------------------------------------------
 function PeoplePanel({ people, loading, error }) {
   const [filter, setFilter] = useState('all');
+  // Default to true so visitors start with the cleaner view (ID-linked people only)
+  const [hideNoId, setHideNoId] = useState(true);
 
-  // Apply the filter
+  // Apply filters: first the stage filter, then optionally strip no-ID people
   const filtered = (people || []).filter((p) => {
-    if (filter === 'all') return true;
-    if (filter === 'complete') return p.readyFor === null;
-    return p.readyFor === filter;
+    // Stage filter
+    if (filter === 'complete' && p.readyFor !== null) return false;
+    if (filter !== 'all' && filter !== 'complete' && p.readyFor !== filter) return false;
+    // FamilySearch ID filter
+    if (hideNoId && !p.familySearchId) return false;
+    return true;
   });
 
-  // Count per filter option so the dropdown shows numbers
+  // Count per filter option — counts respect the hideNoId toggle so the
+  // numbers in the dropdown match what is actually visible.
+  const baseList = hideNoId
+    ? (people || []).filter((p) => p.familySearchId)
+    : (people || []);
   const counts = {};
-  (people || []).forEach((p) => {
+  baseList.forEach((p) => {
     counts['all'] = (counts['all'] || 0) + 1;
     if (p.readyFor === null) {
       counts['complete'] = (counts['complete'] || 0) + 1;
@@ -166,6 +175,15 @@ function PeoplePanel({ people, loading, error }) {
             </option>
           ))}
         </select>
+
+        <label className="people-filter-toggle">
+          <input
+            type="checkbox"
+            checked={hideNoId}
+            onChange={(e) => setHideNoId(e.target.checked)}
+          />
+          Hide people without FamilySearch ID
+        </label>
       </div>
 
       {/* Pipeline legend */}

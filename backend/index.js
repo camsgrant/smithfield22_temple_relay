@@ -166,10 +166,11 @@ async function handleStats() {
     return acc;
   }, {});
 
-  // Random male and female (only entries with a FamilySearch ID get a link,
-  // but we still pick from all entries)
-  const males = entries.filter((e) => e.gender === 'Male');
-  const females = entries.filter((e) => e.gender === 'Female');
+  // Random male and female — only pick from entries that have a FamilySearch ID,
+  // so the highlighted relative always has a usable profile link.
+  // (Ordinances without an ID are still counted in totalOrdinances above.)
+  const males = entries.filter((e) => e.gender === 'Male' && e.familySearchId);
+  const females = entries.filter((e) => e.gender === 'Female' && e.familySearchId);
 
   const randomMale = randomItem(males) || null;
   const randomFemale = randomItem(females) || null;
