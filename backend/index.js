@@ -304,11 +304,11 @@ async function handlePeople() {
           person.skippedStages.push(entry.ordinance);
         }
       } else {
-        if (entry.type == TYPE_RESERVED) {
+        if (entry.type === TYPE_RESERVED) {
           if (!person.reservedStages.includes(entry.ordinance)) {
             person.reservedStages.push(entry.ordinance);
-	  }
-	} else {
+          }
+        } else {
           // Both '' (normal) and 'external' advance the pipeline
           if (!person.completedStages.includes(entry.ordinance)) {
             person.completedStages.push(entry.ordinance);
