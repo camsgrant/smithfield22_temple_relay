@@ -28,8 +28,8 @@ const CORS_HEADERS = {
   'Content-Type': 'application/json',
 };
 
-// Column order in the sheet (1-indexed, matching the header row)
-// A=Timestamp, B=Name, C=Gender, D=Ordinance, E=Date, F=FamilySearchID
+// Column order in the sheet (0-indexed, matching the header row)
+// A=Timestamp, B=Name, C=Gender, D=Ordinance, E=Date, F=FamilySearchID, G=Type
 const COL = {
   TIMESTAMP: 0,
   NAME: 1,
@@ -37,7 +37,13 @@ const COL = {
   ORDINANCE: 3,
   DATE: 4,
   FAMILY_SEARCH_ID: 5,
+  TYPE: 6, // "external" | "unavailable" | "reserved" | "" (empty = normal)
 };
+
+// Valid Type values (column G).  Empty string means a normal submission.
+const TYPE_EXTERNAL    = 'external';
+const TYPE_UNAVAILABLE = 'unavailable';
+const TYPE_RESERVED    = 'reserved';
 
 // ---------------------------------------------------------------------------
 // Build an authenticated Google Sheets client from the service account JSON
@@ -67,6 +73,10 @@ function randomItem(arr) {
 // Helper: format a row array into a structured object
 // ---------------------------------------------------------------------------
 function rowToEntry(row) {
+  // Normalise the Type value: lowercase, trim, default to empty string.
+  const rawType = (row[COL.TYPE] || '').trim().toLowerCase();
+    const type = [TYPE_EXTERNAL, TYPE_UNAVAILABLE, TYPE_RESERVED].includes(rawType) ? rawType : '';
+
   return {
     timestamp: row[COL.TIMESTAMP] || '',
     name: row[COL.NAME] || '',
@@ -74,6 +84,7 @@ function rowToEntry(row) {
     ordinance: row[COL.ORDINANCE] || '',
     date: row[COL.DATE] || '',
     familySearchId: row[COL.FAMILY_SEARCH_ID] || null,
+    type, // '' | 'external' | 'unavailable' | 'reserved'
   };
 }
 
@@ -121,13 +132,14 @@ async function handleSubmit(body) {
   const spreadsheetId = process.env.SPREADSHEET_ID;
   const sheetName = process.env.SHEET_NAME || 'Ordinances';
 
-  // Append a new row: [Timestamp, Name, Gender, Ordinance, Date, FamilySearchID]
+  // Append a new row: [Timestamp, Name, Gender, Ordinance, Date, FamilySearchID, Type]
+  // Type is left blank for normal user submissions.
   const timestamp = new Date().toISOString();
-  const values = [[timestamp, name.trim(), gender, ordinance, date, familySearchId || '']];
+  const values = [[timestamp, name.trim(), gender, ordinance, date, familySearchId || '', '']];
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${sheetName}!A:F`,
+    range: `${sheetName}!A:G`,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values },
   });
@@ -147,7 +159,7 @@ async function handleStats() {
   const result = await sheets.spreadsheets.values.get({
     spreadsheetId,
     // Start at row 2 to skip the header row
-    range: `${sheetName}!A2:F`,
+    range: `${sheetName}!A2:G`,
   });
 
   const rows = result.data.values || [];
@@ -155,22 +167,23 @@ async function handleStats() {
     .filter((row) => row.length >= 4) // must have at least name, gender, ordinance, date
     .map(rowToEntry);
 
-  // Total count
-  const totalOrdinances = entries.length;
+  // Only count normal submissions (not external completions or unavailable markers)
+  const countableEntries = entries.filter((e) => e.type === '');
 
-  // Breakdown by ordinance type
-  const byOrdinance = entries.reduce((acc, entry) => {
+  // Total count — only normal submissions
+  const totalOrdinances = countableEntries.length;
+
+  // Breakdown by ordinance type — only normal submissions
+  const byOrdinance = countableEntries.reduce((acc, entry) => {
     if (entry.ordinance) {
       acc[entry.ordinance] = (acc[entry.ordinance] || 0) + 1;
     }
     return acc;
   }, {});
 
-  // Random male and female — only pick from entries that have a FamilySearch ID,
-  // so the highlighted relative always has a usable profile link.
-  // (Ordinances without an ID are still counted in totalOrdinances above.)
-  const males = entries.filter((e) => e.gender === 'Male' && e.familySearchId);
-  const females = entries.filter((e) => e.gender === 'Female' && e.familySearchId);
+  // Random male and female — only normal submissions with a FamilySearch ID.
+  const males = countableEntries.filter((e) => e.gender === 'Male' && e.familySearchId);
+  const females = countableEntries.filter((e) => e.gender === 'Female' && e.familySearchId);
 
   const randomMale = randomItem(males) || null;
   const randomFemale = randomItem(females) || null;
@@ -186,15 +199,23 @@ async function handleStats() {
 
 // ---------------------------------------------------------------------------
 // GET /people
-// Returns each unique person with their completed stages and the next stage
-// they are ready for.
+// Returns each unique person with their completed stages, skipped stages,
+// and the next stage they are ready for.
 //
 // Grouping strategy:
 //   1. If a row has a non-empty FamilySearch ID, use that as the primary key.
 //   2. Otherwise fall back to the lowercased, trimmed name.
 //
-// This means two rows with the same FS ID will always merge, even if the
-// names were typed slightly differently.
+// Type column (G) behaviour:
+//   ''            — normal completion; counts in stats, advances pipeline.
+//   'external'    — completed outside the tracker; advances pipeline, invisible
+//                   to stats. Rendered identically to a normal completion.
+//   'unavailable' — this ordinance does not apply to this person; shown as a
+//                   greyed-out N/A bubble in the pipeline. readyFor skips it.
+//                   "All complete" means all non-unavailable stages are done.
+//   'reserved'    - this ordinance is reserved by someone. so it is not done.
+//                   readyFor should not skip it. Should show up as a different
+//                   color in the pipeline.
 //
 // Response shape:
 // {
@@ -204,7 +225,9 @@ async function handleStats() {
 //       gender: "Male",
 //       familySearchId: "LZXX-XXX" | null,
 //       completedStages: ["Baptism & Confirmation", "Initiatory"],
-//       readyFor: "Endowment"   // null if all 5 stages complete
+//       reservedStages:  ["Endowment"],
+//       skippedStages:   ["Sealing to Spouse"],
+//       readyFor: "Endowment"   // null if all applicable stages complete
 //     },
 //     ...
 //   ]
@@ -217,14 +240,12 @@ async function handlePeople() {
 
   const result = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${sheetName}!A2:F`,
+    range: `${sheetName}!A2:G`,  // Now reads through column G
   });
 
   const rows = result.data.values || [];
 
   // Map keyed by a canonical ID string → person record
-  // We keep two lookup maps so we can handle the case where later rows
-  // for the same person add a FamilySearch ID that earlier rows lacked.
   const byFsId = {};   // fsId  → person record
   const byName = {};   // normalizedName → person record
 
@@ -241,32 +262,26 @@ async function handlePeople() {
     let person = null;
 
     if (fsId) {
-      // Primary: look up by FS ID
       person = byFsId[fsId];
       if (!person) {
-        // Maybe we already created a name-keyed record for this person
-        // before we had their FS ID. Promote it.
         person = byName[normalizedName];
         if (person) {
-          // Attach the FS ID and move to the fsId map
           person.familySearchId = fsId;
           byFsId[fsId] = person;
-          // Keep the byName entry pointing to the same object so future
-          // name-only rows for this person still merge correctly.
         } else {
-          // Brand new person
           person = {
             name: entry.name.trim(),
             gender: entry.gender || '',
             familySearchId: fsId,
             completedStages: [],
+            reservedStages: [],
+            skippedStages: [],
           };
           byFsId[fsId] = person;
           byName[normalizedName] = person;
         }
       }
     } else {
-      // No FS ID — fall back to name matching
       person = byName[normalizedName];
       if (!person) {
         person = {
@@ -274,6 +289,8 @@ async function handlePeople() {
           gender: entry.gender || '',
           familySearchId: null,
           completedStages: [],
+          reservedStages: [],
+          skippedStages: [],
         };
         byName[normalizedName] = person;
       }
@@ -281,18 +298,31 @@ async function handlePeople() {
 
     // --- merge this ordinance into the person record ---
     if (entry.ordinance && STAGES.includes(entry.ordinance)) {
-      if (!person.completedStages.includes(entry.ordinance)) {
-        person.completedStages.push(entry.ordinance);
+      if (entry.type === TYPE_UNAVAILABLE) {
+        // Mark as unavailable (N/A bubble) — takes precedence over completions
+        if (!person.skippedStages.includes(entry.ordinance)) {
+          person.skippedStages.push(entry.ordinance);
+        }
+      } else {
+        if (entry.type == TYPE_RESERVED) {
+          if (!person.reservedStages.includes(entry.ordinance)) {
+            person.reservedStages.push(entry.ordinance);
+	  }
+	} else {
+          // Both '' (normal) and 'external' advance the pipeline
+          if (!person.completedStages.includes(entry.ordinance)) {
+            person.completedStages.push(entry.ordinance);
+          }
+        }
       }
     }
 
-    // Keep the most recent non-empty name/gender (in case it was fixed later)
+    // Keep the most recent non-empty name/gender
     if (entry.name.trim()) person.name = entry.name.trim();
     if (entry.gender) person.gender = entry.gender;
   }
 
-  // Collect unique person records (byFsId and byName may share references;
-  // use a Set to deduplicate).
+  // Collect unique person records (byFsId and byName may share references)
   const seen = new Set();
   const people = [];
   for (const p of [...Object.values(byFsId), ...Object.values(byName)]) {
@@ -301,28 +331,29 @@ async function handlePeople() {
 
       // Sort completed stages in canonical order
       p.completedStages.sort((a, b) => STAGES.indexOf(a) - STAGES.indexOf(b));
+      p.skippedStages.sort((a, b) => STAGES.indexOf(a) - STAGES.indexOf(b));
+      p.reservedStages.sort((a,b) => STAGES.indexOf(a) - STAGES.indexOf(b));
 
       // Determine the next stage the person is ready for.
       //
-      // We never infer earlier stages from later ones — if someone only has
-      // "Endowment" recorded, we do NOT assume they completed Baptism or
-      // Initiatory. Instead, readyFor is the first stage that comes AFTER
-      // their highest recorded stage that they haven't completed yet.
+      // A stage is "applicable" if it is not in skippedStages.
+      // readyFor is the first applicable stage (in canonical order) that
+      // has not been completed yet.
       //
-      // If they have no recorded stages, readyFor is "Baptism & Confirmation".
-      // If they have completed all 5 stages, readyFor is null.
+      // If all applicable stages are complete, readyFor is null
+      // (triggers the "All ordinances complete 🎉" badge).
+      const applicableStages = STAGES.filter((s) => !p.skippedStages.includes(s));
+
       let readyFor = null;
-      if (p.completedStages.length === 0) {
-        readyFor = STAGES[0];
+      if (applicableStages.length === 0) {
+        // All stages marked unavailable — treat as complete
+        readyFor = null;
+      } else if (p.completedStages.length === 0) {
+        // Nothing done yet — ready for the first applicable stage
+        readyFor = applicableStages[0];
       } else {
-        // Index of the furthest stage they've completed
-        const highestIdx = Math.max(
-          ...p.completedStages.map((s) => STAGES.indexOf(s))
-        );
-        // First stage after that index which they haven't completed
-        readyFor = STAGES.slice(highestIdx + 1).find(
-          (s) => !p.completedStages.includes(s)
-        ) || null;
+        // Find the first applicable stage that hasn't been completed
+        readyFor = applicableStages.find((s) => !p.completedStages.includes(s)) || null;
       }
       p.readyFor = readyFor;
 
@@ -330,7 +361,8 @@ async function handlePeople() {
     }
   }
 
-  // Sort people: incomplete first (by how far along they are), then complete
+  // Sort: incomplete first (by how far along in STAGES their readyFor is),
+  // then complete, then alphabetically within each group.
   people.sort((a, b) => {
     const aIdx = a.readyFor ? STAGES.indexOf(a.readyFor) : STAGES.length;
     const bIdx = b.readyFor ? STAGES.indexOf(b.readyFor) : STAGES.length;

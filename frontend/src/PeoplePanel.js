@@ -8,9 +8,18 @@ import React, { useState } from 'react';
 //
 // Props:
 //   people  — array from GET /people, each item:
-//               { name, gender, familySearchId, completedStages[], readyFor }
+//               { name, gender, familySearchId, completedStages[],
+//                 reservedStages[], skippedStages[], readyFor }
 //   loading — boolean
 //   error   — string | null
+//
+// skippedStages contains ordinances marked "unavailable" in the sheet.
+// Those stages are shown as a greyed-out N/A bubble in the pipeline and
+// are excluded from the "ready for" logic — a person with all applicable
+// stages done (or skipped) is treated as fully complete. reservedStages
+// contains ordinances that are reserved by someone, so they aren't complete,
+// don't advance "ready for", but the person isn't available to select for
+// taking their name and ordinance to the temple.
 // ---------------------------------------------------------------------------
 
 const STAGES = [
@@ -39,26 +48,61 @@ const FILTER_OPTIONS = [
 // ---------------------------------------------------------------------------
 // StagePipeline — the 5-bubble progress bar for one person
 // ---------------------------------------------------------------------------
-function StagePipeline({ completedStages, readyFor }) {
+function StagePipeline({ completedStages, skippedStages = [], reservedStages = [], readyFor }) {
   return (
     <div className="pipeline" aria-label="Ordinance progression">
       {STAGES.map((stage, idx) => {
-        const done = completedStages.includes(stage);
-        const next = stage === readyFor;
-        const isLast = idx === STAGES.length - 1;
+        const done      = completedStages.includes(stage);
+        const skipped   = skippedStages.includes(stage);
+        const reserved  = reservedStages.includes(stage);
+        const next      = stage === readyFor;
+        const isLast    = idx === STAGES.length - 1;
+
+        // Determine CSS class and display content
+        let bubbleClass = 'pipeline-bubble';
+        let icon        = '';
+        let label       = STAGE_SHORT[stage];
+        let titleText   = stage;
+        let ariaLabel   = stage;
+
+        if (skipped) {
+          bubbleClass += ' skipped';
+          icon        = '—';
+          label       = 'N/A';
+          titleText   = `${stage} — not applicable`;
+          ariaLabel   = `${stage} – not applicable`;
+        } else if (done) {
+          bubbleClass += ' done';
+          icon        = '✓';
+          titleText   = `${stage} ✓`;
+          ariaLabel   = `${stage} completed`;
+	} else if (reserved) {
+          bubbleClass += ' reserved';
+          icon        = '⏲';
+          label       = 'Reserved';
+          titleText   = `${stage} ⏲`;
+          ariaLabel   = `${stage} reserved`;
+        } else if (next) {
+          bubbleClass += ' next';
+          icon        = '→';
+          titleText   = `Ready for ${stage}`;
+          ariaLabel   = `${stage} – ready`;
+        } else {
+          ariaLabel   = `${stage} – not yet`;
+        }
 
         return (
           <React.Fragment key={stage}>
             {/* Bubble */}
             <div
-              className={`pipeline-bubble ${done ? 'done' : ''} ${next ? 'next' : ''}`}
-              title={done ? `${stage} ✓` : next ? `Ready for ${stage}` : stage}
-              aria-label={done ? `${stage} completed` : next ? `${stage} – ready` : `${stage} – not yet`}
+              className={bubbleClass}
+              title={titleText}
+              aria-label={ariaLabel}
             >
               <span className="pipeline-bubble-icon" aria-hidden="true">
-                {done ? '✓' : next ? '→' : ''}
+                {icon}
               </span>
-              <span className="pipeline-bubble-label">{STAGE_SHORT[stage]}</span>
+              <span className="pipeline-bubble-label">{label}</span>
             </div>
 
             {/* Connector line between bubbles */}
@@ -79,7 +123,7 @@ function StagePipeline({ completedStages, readyFor }) {
 // PersonRow — one person card
 // ---------------------------------------------------------------------------
 function PersonRow({ person }) {
-  const { name, gender, familySearchId, completedStages, readyFor } = person;
+  const { name, gender, familySearchId, completedStages, reservedStages = [], skippedStages = [], readyFor } = person;
 
   const fsUrl = familySearchId
     ? `https://www.familysearch.org/tree/person/ordinances/${familySearchId}`
@@ -115,7 +159,12 @@ function PersonRow({ person }) {
       </div>
 
       {/* Right: pipeline */}
-      <StagePipeline completedStages={completedStages} readyFor={readyFor} />
+      <StagePipeline
+        completedStages={completedStages}
+        skippedStages={skippedStages}
+        reservedStages={reservedStages}
+        readyFor={readyFor}
+      />
     </div>
   );
 }
@@ -140,9 +189,13 @@ function PeoplePanel({ people, loading, error }) {
 
   // Count per filter option — counts respect the hideNoId toggle so the
   // numbers in the dropdown match what is actually visible.
+  //
+  // A person counts as "complete" when readyFor === null, which the backend
+  // already computes correctly considering skippedStages.
   const baseList = hideNoId
     ? (people || []).filter((p) => p.familySearchId)
     : (people || []);
+
   const counts = {};
   baseList.forEach((p) => {
     counts['all'] = (counts['all'] || 0) + 1;
@@ -196,6 +249,12 @@ function PeoplePanel({ people, loading, error }) {
         </span>
         <span className="legend-item">
           <span className="legend-dot" /> Not yet started
+        </span>
+        <span className="legend-item legend-item--skipped">
+          <span className="legend-dot skipped" /> Not applicable
+        </span>
+        <span className="legend-item legend-item--reserved">
+          <span className="legend-dot reserved" /> Reserved
         </span>
       </div>
 

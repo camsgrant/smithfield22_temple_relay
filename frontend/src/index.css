@@ -367,6 +367,16 @@ body {
   border: 2px solid #2e5987;
 }
 
+.legend-dot.skipped {
+  background: #e8e4de;
+  border: 2px dashed #bbb;
+}
+
+.legend-dot.reserved {
+    background: #9bbad8;
+    border 2px solid #2e5987;
+}
+
 /* Person list ----------------------------------------------- */
 .people-list {
   display: flex;
@@ -545,6 +555,20 @@ body {
 .pipeline-bubble.next .pipeline-bubble-label {
   color: #1a3a5c;
   font-weight: bold;
+}
+
+/* Unavailable/skipped stage — greyed out, N/A label */
+.pipeline-bubble.skipped .pipeline-bubble-icon {
+  background: #e8e4de;
+  border-color: #bbb;
+  border-style: dashed;
+  color: #aaa;
+  font-size: 0.8rem;
+}
+
+.pipeline-bubble.skipped .pipeline-bubble-label {
+  color: #aaa;
+  font-style: italic;
 }
 
 /* Responsive: on narrow screens, show the pipeline scrollable */
